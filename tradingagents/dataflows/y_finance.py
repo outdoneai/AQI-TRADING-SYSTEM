@@ -293,11 +293,50 @@ def get_stockstats_indicator(
     return str(indicator_value)
 
 
+def _format_large_number(value):
+    """Format large numbers into human-readable form."""
+    if value is None:
+        return None
+    abs_val = abs(value)
+    if abs_val >= 1e12:
+        return f"{value/1e12:.2f} Trillion"
+    elif abs_val >= 1e9:
+        return f"{value/1e9:.2f} Billion"
+    elif abs_val >= 1e7:
+        return f"{value/1e7:.2f} Crore"
+    elif abs_val >= 1e6:
+        return f"{value/1e6:.2f} Million"
+    elif abs_val >= 1e3:
+        return f"{value/1e3:.2f}K"
+    return str(value)
+
+
+def _format_percentage(value, already_percentage=False):
+    """Format a value as percentage. If already_percentage=True, value is like 35.65 meaning 35.65%."""
+    if value is None:
+        return None
+    if already_percentage:
+        return f"{value:.2f}%"
+    return f"{value * 100:.2f}%"
+
+
+def _validate_ratio(name, value, min_val=None, max_val=None):
+    """Validate a financial ratio and add warning if out of expected range."""
+    if value is None:
+        return None
+    warning = ""
+    if min_val is not None and value < min_val:
+        warning = f" [WARNING: unusually low, verify data]"
+    if max_val is not None and value > max_val:
+        warning = f" [WARNING: unusually high, verify data]"
+    return warning
+
+
 def get_fundamentals(
     ticker: Annotated[str, "ticker symbol of the company"],
     curr_date: Annotated[str, "current date (not used for yfinance)"] = None
 ):
-    """Get company fundamentals overview from yfinance."""
+    """Get company fundamentals overview from yfinance with proper labels and validation."""
     try:
         ticker_obj = yf.Ticker(ticker.upper())
         info = ticker_obj.info
@@ -305,44 +344,120 @@ def get_fundamentals(
         if not info:
             return f"No fundamentals data found for symbol '{ticker}'"
 
-        fields = [
-            ("Name", info.get("longName")),
-            ("Sector", info.get("sector")),
-            ("Industry", info.get("industry")),
-            ("Market Cap", info.get("marketCap")),
-            ("PE Ratio (TTM)", info.get("trailingPE")),
-            ("Forward PE", info.get("forwardPE")),
-            ("PEG Ratio", info.get("pegRatio")),
-            ("Price to Book", info.get("priceToBook")),
-            ("EPS (TTM)", info.get("trailingEps")),
-            ("Forward EPS", info.get("forwardEps")),
-            ("Dividend Yield", info.get("dividendYield")),
-            ("Beta", info.get("beta")),
-            ("52 Week High", info.get("fiftyTwoWeekHigh")),
-            ("52 Week Low", info.get("fiftyTwoWeekLow")),
-            ("50 Day Average", info.get("fiftyDayAverage")),
-            ("200 Day Average", info.get("twoHundredDayAverage")),
-            ("Revenue (TTM)", info.get("totalRevenue")),
-            ("Gross Profit", info.get("grossProfits")),
-            ("EBITDA", info.get("ebitda")),
-            ("Net Income", info.get("netIncomeToCommon")),
-            ("Profit Margin", info.get("profitMargins")),
-            ("Operating Margin", info.get("operatingMargins")),
-            ("Return on Equity", info.get("returnOnEquity")),
-            ("Return on Assets", info.get("returnOnAssets")),
-            ("Debt to Equity", info.get("debtToEquity")),
-            ("Current Ratio", info.get("currentRatio")),
-            ("Book Value", info.get("bookValue")),
-            ("Free Cash Flow", info.get("freeCashflow")),
-        ]
-
         lines = []
-        for label, value in fields:
-            if value is not None:
-                lines.append(f"{label}: {value}")
+
+        # --- Company Profile ---
+        lines.append("## Company Profile")
+        for label, key in [("Name", "longName"), ("Sector", "sector"), ("Industry", "industry"), ("Currency", "currency")]:
+            val = info.get(key)
+            if val is not None:
+                lines.append(f"{label}: {val}")
+
+        currency = info.get("currency", "")
+        curr_symbol = "₹" if currency == "INR" else "$" if currency == "USD" else f"{currency} "
+
+        # --- Valuation Metrics ---
+        lines.append("\n## Valuation Metrics")
+        market_cap = info.get("marketCap")
+        if market_cap is not None:
+            lines.append(f"Market Cap: {curr_symbol}{_format_large_number(market_cap)} (raw: {market_cap:,.0f})")
+
+        for label, key, expected_range in [
+            ("PE Ratio (TTM)", "trailingPE", (0, 200)),
+            ("Forward PE", "forwardPE", (0, 200)),
+            ("PEG Ratio", "pegRatio", (-5, 10)),
+            ("Price to Book", "priceToBook", (0, 100)),
+        ]:
+            val = info.get(key)
+            if val is not None:
+                warn = _validate_ratio(label, val, *expected_range)
+                lines.append(f"{label}: {val:.2f}{warn or ''}")
+
+        # --- Earnings ---
+        lines.append("\n## Earnings")
+        for label, key in [("EPS (TTM)", "trailingEps"), ("Forward EPS", "forwardEps")]:
+            val = info.get(key)
+            if val is not None:
+                lines.append(f"{label}: {curr_symbol}{val:.2f}")
+
+        div_yield = info.get("dividendYield")
+        if div_yield is not None:
+            lines.append(f"Dividend Yield: {_format_percentage(div_yield)}")
+
+        # --- Price Context ---
+        lines.append("\n## Price Context")
+        beta = info.get("beta")
+        if beta is not None:
+            beta_note = "lower volatility than market" if beta < 1 else "higher volatility than market" if beta > 1 else "same volatility as market"
+            lines.append(f"Beta (5-Year Monthly, per yfinance): {beta:.2f} ({beta_note})")
+            lines.append(f"  NOTE: This is the 5-year beta. Shorter-period betas may differ significantly.")
+
+        for label, key in [
+            ("52 Week High", "fiftyTwoWeekHigh"),
+            ("52 Week Low", "fiftyTwoWeekLow"),
+            ("50 Day Average", "fiftyDayAverage"),
+            ("200 Day Average", "twoHundredDayAverage"),
+        ]:
+            val = info.get(key)
+            if val is not None:
+                lines.append(f"{label}: {curr_symbol}{val:.2f}")
+
+        # Add price position context
+        high = info.get("fiftyTwoWeekHigh")
+        low = info.get("fiftyTwoWeekLow")
+        current = info.get("currentPrice") or info.get("previousClose")
+        if high and low and current and high != low:
+            position_pct = (current - low) / (high - low) * 100
+            lines.append(f"Current Price: {curr_symbol}{current:.2f}")
+            lines.append(f"Position in 52-Week Range: {position_pct:.1f}% (0%=at low, 100%=at high)")
+            pct_from_high = (high - current) / high * 100
+            lines.append(f"Distance from 52-Week High: -{pct_from_high:.1f}%")
+
+        # --- Revenue & Profitability ---
+        lines.append("\n## Revenue & Profitability")
+        for label, key in [
+            ("Revenue (TTM)", "totalRevenue"),
+            ("Gross Profit", "grossProfits"),
+            ("EBITDA", "ebitda"),
+            ("Net Income", "netIncomeToCommon"),
+            ("Free Cash Flow", "freeCashflow"),
+        ]:
+            val = info.get(key)
+            if val is not None:
+                lines.append(f"{label}: {curr_symbol}{_format_large_number(val)} (raw: {val:,.0f})")
+
+        for label, key in [
+            ("Profit Margin", "profitMargins"),
+            ("Operating Margin", "operatingMargins"),
+            ("Return on Equity", "returnOnEquity"),
+            ("Return on Assets", "returnOnAssets"),
+        ]:
+            val = info.get(key)
+            if val is not None:
+                lines.append(f"{label}: {_format_percentage(val)}")
+
+        # --- Balance Sheet Health ---
+        lines.append("\n## Balance Sheet Health")
+        de_ratio = info.get("debtToEquity")
+        if de_ratio is not None:
+            # yfinance returns debtToEquity as a percentage (e.g., 35.65 means 35.65%)
+            de_as_ratio = de_ratio / 100.0
+            warn = _validate_ratio("Debt-to-Equity", de_as_ratio, 0, 5.0)
+            lines.append(f"Debt-to-Equity Ratio: {de_as_ratio:.2f} (i.e., {de_ratio:.2f}% — for every 1 unit of equity, there is {de_as_ratio:.2f} units of debt){warn or ''}")
+
+        current_ratio = info.get("currentRatio")
+        if current_ratio is not None:
+            warn = _validate_ratio("Current Ratio", current_ratio, 0.1, 20)
+            cr_note = "healthy" if current_ratio >= 1.0 else "below 1.0, potential liquidity concern"
+            lines.append(f"Current Ratio: {current_ratio:.2f} ({cr_note}){warn or ''}")
+
+        book_val = info.get("bookValue")
+        if book_val is not None:
+            lines.append(f"Book Value Per Share: {curr_symbol}{book_val:.2f}")
 
         header = f"# Company Fundamentals for {ticker.upper()}\n"
-        header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        header += f"# Currency: {currency}\n\n"
 
         return header + "\n".join(lines)
 

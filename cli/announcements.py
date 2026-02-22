@@ -35,7 +35,12 @@ def display_announcements(console: Console, data: dict) -> None:
     if not announcements:
         return
 
+    # Sanitize content for cp1252/Windows encoding limits
     content = "\n".join(announcements)
+    try:
+        content.encode('cp1252')
+    except UnicodeEncodeError:
+        content = content.replace("🎉", "[*]")
 
     panel = Panel(
         content,

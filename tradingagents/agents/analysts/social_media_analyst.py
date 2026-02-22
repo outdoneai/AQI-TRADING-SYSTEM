@@ -1,7 +1,13 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import AIMessage
 import time
 import json
-from tradingagents.agents.utils.agent_utils import get_news
+from tradingagents.agents.utils.agent_utils import (
+    get_news,
+    get_reddit_sentiment,
+    get_finnhub_sentiment,
+    analyze_text_sentiment,
+)
 from tradingagents.dataflows.config import get_config
 
 
@@ -13,11 +19,27 @@ def create_social_media_analyst(llm):
 
         tools = [
             get_news,
+            get_reddit_sentiment,
+            get_finnhub_sentiment,
         ]
 
         system_message = (
-            "You are a social media and company specific news researcher/analyst tasked with analyzing social media posts, recent company news, and public sentiment for a specific company over the past week. You will be given a company's name your objective is to write a comprehensive long report detailing your analysis, insights, and implications for traders and investors on this company's current state after looking at social media and what people are saying about that company, analyzing sentiment data of what people feel each day about the company, and looking at recent company news. Use the get_news(query, start_date, end_date) tool to search for company-specific news and social media discussions. Try to look at all sources possible from social media to sentiment to news. Do not simply state the trends are mixed, provide detailed and finegrained analysis and insights that may help traders make decisions."
-            + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read.""",
+            "You are a sentiment and market mood analyst tasked with analyzing public sentiment "
+            "for a specific company using REAL data sources. You have access to:\n"
+            "1. get_news(query, start_date, end_date) — News articles for sentiment tone analysis\n"
+            "2. get_reddit_sentiment(ticker, look_back_days, limit) — Real Reddit posts from Indian investing subreddits\n"
+            "3. get_finnhub_sentiment(ticker) — Market sentiment scores and analyst recommendations\n\n"
+            "Your job is to synthesize sentiment from these REAL sources into a comprehensive report.\n\n"
+            "CRITICAL RULES:\n"
+            "1. ONLY report sentiment from data returned by the tools. Do NOT fabricate social media posts.\n"
+            "2. If a tool returns 'UNAVAILABLE', state that clearly — do NOT make up data to fill the gap.\n"
+            "3. Do NOT invent Twitter/X posts, Reddit discussions, or sentiment percentages.\n"
+            "4. Quote actual post titles from Reddit data when available.\n"
+            "5. Clearly attribute each data point to its source (Reddit, Finnhub, or News).\n"
+            "6. If limited data is available, say so honestly. A short honest report is better than a long fabricated one.\n"
+            "Do not simply state the trends are mixed, provide detailed and finegrained "
+            "analysis and insights that may help traders make decisions."
+            + " Make sure to append a Markdown table at the end of the report to organize key points.",
         )
 
         prompt = ChatPromptTemplate.from_messages(
@@ -44,7 +66,14 @@ def create_social_media_analyst(llm):
 
         chain = prompt | llm.bind_tools(tools)
 
-        result = chain.invoke(state["messages"])
+        try:
+            result = chain.invoke(state["messages"])
+        except Exception as e:
+            error_report = f"[SENTIMENT ANALYSIS ERROR] Failed to generate sentiment report for {ticker}: {str(e)}"
+            return {
+                "messages": [AIMessage(content=error_report)],
+                "sentiment_report": error_report,
+            }
 
         report = ""
 

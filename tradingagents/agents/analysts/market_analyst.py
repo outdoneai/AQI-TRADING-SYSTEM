@@ -1,4 +1,5 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import AIMessage
 import time
 import json
 from tradingagents.agents.utils.agent_utils import get_stock_data, get_indicators
@@ -42,7 +43,14 @@ Volatility Indicators:
 Volume-Based Indicators:
 - vwma: VWMA: A moving average weighted by volume. Usage: Confirm trends by integrating price action with volume data. Tips: Watch for skewed results from volume spikes; use in combination with other volume analyses.
 
-- Select indicators that provide diverse and complementary information. Avoid redundancy (e.g., do not select both rsi and stochrsi). Also briefly explain why they are suitable for the given market context. When you tool call, please use the exact name of the indicators provided above as they are defined parameters, otherwise your call will fail. Please make sure to call get_stock_data first to retrieve the CSV that is needed to generate indicators. Then use get_indicators with the specific indicator names. Write a very detailed and nuanced report of the trends you observe. Do not simply state the trends are mixed, provide detailed and finegrained analysis and insights that may help traders make decisions."""
+- Select indicators that provide diverse and complementary information. Avoid redundancy (e.g., do not select both rsi and stochrsi). Also briefly explain why they are suitable for the given market context. When you tool call, please use the exact name of the indicators provided above as they are defined parameters, otherwise your call will fail. Please make sure to call get_stock_data first to retrieve the CSV that is needed to generate indicators. Then use get_indicators with the specific indicator names. Write a very detailed and nuanced report of the trends you observe. Do not simply state the trends are mixed, provide detailed and finegrained analysis and insights that may help traders make decisions.
+
+CRITICAL RULES:
+1. ONLY report indicator values that come from the tool outputs. Do NOT invent indicator values.
+2. Clearly state whether the current price is ABOVE or BELOW each moving average.
+3. If a Death Cross or Golden Cross is forming, calculate the exact gap between 50-day and 200-day SMA.
+4. Do NOT hallucinate support/resistance levels. Derive them from the actual price data returned by the tools.
+5. State the exact last closing price and compare it numerically to each key level."""
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
         )
 
@@ -70,7 +78,14 @@ Volume-Based Indicators:
 
         chain = prompt | llm.bind_tools(tools)
 
-        result = chain.invoke(state["messages"])
+        try:
+            result = chain.invoke(state["messages"])
+        except Exception as e:
+            error_report = f"[MARKET ANALYSIS ERROR] Failed to generate market report for {ticker}: {str(e)}"
+            return {
+                "messages": [AIMessage(content=error_report)],
+                "market_report": error_report,
+            }
 
         report = ""
 

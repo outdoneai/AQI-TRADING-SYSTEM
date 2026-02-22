@@ -18,6 +18,11 @@ from tradingagents.agents.utils.news_data_tools import (
     get_insider_transactions,
     get_global_news
 )
+from tradingagents.agents.utils.sentiment_data_tools import (
+    get_reddit_sentiment,
+    get_finnhub_sentiment,
+    analyze_text_sentiment
+)
 
 def create_msg_delete():
     def delete_messages(state):

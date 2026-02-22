@@ -217,3 +217,11 @@ __marimo__/
 
 # Cache
 **/data_cache/
+
+# AQI Beast — runtime data (don't commit)
+memory/
+eval_results/
+results/
+*.jsonl
+.gemini/
+

@@ -30,7 +30,10 @@ from tradingagents.agents.utils.agent_utils import (
     get_income_statement,
     get_news,
     get_insider_transactions,
-    get_global_news
+    get_global_news,
+    get_reddit_sentiment,
+    get_finnhub_sentiment,
+    analyze_text_sentiment,
 )
 
 from .conditional_logic import ConditionalLogic
@@ -160,8 +163,10 @@ class TradingAgentsGraph:
             ),
             "social": ToolNode(
                 [
-                    # News tools for social media analysis
+                    # Real sentiment data tools
                     get_news,
+                    get_reddit_sentiment,
+                    get_finnhub_sentiment,
                 ]
             ),
             "news": ToolNode(
@@ -279,5 +284,13 @@ class TradingAgentsGraph:
         )
 
     def process_signal(self, full_signal):
-        """Process a signal to extract the core decision."""
+        """Process a signal to extract the core decision (backward compatible)."""
         return self.signal_processor.process_signal(full_signal)
+
+    def process_signal_structured(self, full_signal):
+        """Process a signal to extract a structured JSON decision.
+        
+        Returns:
+            dict with keys: decision, confidence, stop_loss_pct, target_pct, risk_reward_ratio, rationale
+        """
+        return self.signal_processor.process_signal_structured(full_signal)

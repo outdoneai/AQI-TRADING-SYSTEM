@@ -41,6 +41,9 @@ class GraphSetup:
         self, selected_analysts=["market", "social", "news", "fundamentals"]
     ):
         """Set up and compile the agent workflow graph.
+        
+        PARALLEL EXECUTION: All analysts run simultaneously (fan-out from START,
+        fan-in at Bull Researcher). This is ~4x faster than sequential execution.
 
         Args:
             selected_analysts (list): List of analyst types to include. Options are:
@@ -126,18 +129,19 @@ class GraphSetup:
         workflow.add_node("Conservative Analyst", conservative_analyst)
         workflow.add_node("Risk Judge", risk_manager_node)
 
-        # Define edges
-        # Start with the first analyst
-        first_analyst = selected_analysts[0]
-        workflow.add_edge(START, f"{first_analyst.capitalize()} Analyst")
-
-        # Connect analysts in sequence
-        for i, analyst_type in enumerate(selected_analysts):
+        # === PARALLEL ANALYST EXECUTION ===
+        # Fan-out: START -> all analysts simultaneously
+        # Fan-in: all Msg Clear nodes -> Bull Researcher
+        
+        for analyst_type in selected_analysts:
             current_analyst = f"{analyst_type.capitalize()} Analyst"
             current_tools = f"tools_{analyst_type}"
             current_clear = f"Msg Clear {analyst_type.capitalize()}"
 
-            # Add conditional edges for current analyst
+            # START fans out to ALL analysts in parallel
+            workflow.add_edge(START, current_analyst)
+
+            # Each analyst has its own tool loop
             workflow.add_conditional_edges(
                 current_analyst,
                 getattr(self.conditional_logic, f"should_continue_{analyst_type}"),
@@ -145,14 +149,10 @@ class GraphSetup:
             )
             workflow.add_edge(current_tools, current_analyst)
 
-            # Connect to next analyst or to Bull Researcher if this is the last analyst
-            if i < len(selected_analysts) - 1:
-                next_analyst = f"{selected_analysts[i+1].capitalize()} Analyst"
-                workflow.add_edge(current_clear, next_analyst)
-            else:
-                workflow.add_edge(current_clear, "Bull Researcher")
+            # All clear nodes fan-in to Bull Researcher
+            workflow.add_edge(current_clear, "Bull Researcher")
 
-        # Add remaining edges
+        # Add remaining edges (unchanged)
         workflow.add_conditional_edges(
             "Bull Researcher",
             self.conditional_logic.should_continue_debate,
