@@ -63,6 +63,20 @@ class OpenAIClient(BaseLLMClient):
             api_key = os.environ.get("KILO_API_KEY") or os.environ.get("OPENAI_API_KEY")
             if api_key:
                 llm_kwargs["api_key"] = api_key
+        elif self.provider == "nvidia":
+            # NVIDIA NIM — free tier: DeepSeek V3.2, Kimi K2, GLM 4.7
+            llm_kwargs["base_url"] = "https://integrate.api.nvidia.com/v1"
+            api_key = os.environ.get("NVIDIA_API_KEY")
+            if api_key:
+                llm_kwargs["api_key"] = api_key
+        elif self.provider == "qwen":
+            # Qwen DashScope — free via OAuth: Qwen 3.5 Plus
+            llm_kwargs["base_url"] = os.environ.get(
+                "QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            )
+            api_key = os.environ.get("QWEN_API_KEY") or os.environ.get("DASHSCOPE_API_KEY")
+            if api_key:
+                llm_kwargs["api_key"] = api_key
         elif self.base_url:
             llm_kwargs["base_url"] = self.base_url
 
